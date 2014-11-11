@@ -105,6 +105,10 @@
               "",
               [
                 "#!/bin/sh\n",
+                "yum install -y ImageMagick\n",
+                "easy_install argparse\n",
+                "mkdir /home/ec2-user/jobs\n",
+                "wget -O /home/ec2-user/image_processor.py https://us-west-2-aws-training.s3.amazonaws.com/architecting-lab-3-creating-a-batch-processing-cluster-3.1/static/image_processor.py\n",
                 "/usr/bin/python /home/ec2-user/image_processor.py &\n"
               ]
             ]
