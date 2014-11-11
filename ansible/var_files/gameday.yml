@@ -1,3 +1,4 @@
-vpc_net: 10.1
-appname: imageprocessor1
+vpc_net: 10.2
+appname: imageprocessor2
 nat_amiid: ami-11d6e610
+iamrole: BatchProcessing-{{appname}}
