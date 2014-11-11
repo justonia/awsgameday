@@ -40,7 +40,7 @@
     local_action:
       module: ec2_group
       name: natsg
-      description: NAT security group
+      description: NAT Security Group
       vpc_id: "{{vpc.vpc_id}}"
       region: "{{region}}"
       rules:
@@ -55,5 +55,18 @@
       - proto: tcp
         from_port: 22
         to_port: 22
-        cidr_ip: 10.0.0.0/8
+        cidr_ip: 0.0.0.0/8
+    register: natsg
 
+  - name: Create nat server
+    local_action:
+      module: ec2
+      key_name: "{{appname}}"
+      group_id: "{{natsg.group_id}}"
+      instance_type: m1.small
+      image: "{{nat_amiid}}"
+      source_dest_check: False
+      wait: yes
+      vpc_subnet_id: "{{vpc['subnets'][0]['id']}}"
+      region: "{{region}}"
+      assign_public_ip: yes
