@@ -1,0 +1,189 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "autoscaling",
+  "Parameters": {
+    "subnets": {
+      "Description": "ids of the subnets to launch instances in",
+      "Type": "CommaDelimitedList"
+    },
+    "ami": {
+      "Description": "the ami id",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "securitygroup": {
+      "Description": "security group id",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    }
+  },
+  "Resources": {
+    "iamrole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "root",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Stmt1415740964000",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                },
+                {
+                  "Sid": "Stmt1415740989000",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "iamprofile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "iamrole"
+          }
+        ]
+      }
+    },
+    "launchconfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "EbsOptimized": false,
+        "InstanceMonitoring": true,
+        "ImageId": {
+          "Ref": "ami"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "securitygroup"
+          }
+        ],
+        "AssociatePublicIpAddress": false,
+        "IamInstanceProfile": {"Ref": "iamprofile"},
+        "InstanceType": "t2.micro",
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/sh\n",
+                "yum install -y ImageMagick\n",
+                "easy_install argparse\n",
+                "mkdir /home/ec2-user/jobs\n",
+                "wget -O /home/ec2-user/image_processor.py https://us-west-2-aws-training.s3.amazonaws.com/architecting-lab-3-creating-a-batch-processing-cluster-3.1/static/image_processor.py\n",
+                "/usr/bin/python /home/ec2-user/image_processor.py &\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "autoscalinggroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "Cooldown": "10",
+        "DesiredCapacity": 1,
+        "MaxSize": 4,
+        "MinSize": 1,
+        "LaunchConfigurationName": {
+          "Ref": "launchconfig"
+        },
+        "VPCZoneIdentifier": {
+          "Ref": "subnets"
+        },
+        "AvailabilityZones": [
+          "ap-northeast-1a"
+        ]
+      }
+    },
+    "addpolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "autoscalinggroup"
+        },
+        "ScalingAdjustment": "1"
+      }
+    },
+    "removepolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "autoscalinggroup"
+        },
+        "ScalingAdjustment": "-1"
+      }
+    },
+    "cloudwatchalarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmActions": [
+          {
+            "Ref": "addpolicy"
+          }
+        ],
+        "AlarmDescription": "queue is to long",
+        "AlarmName": "long-queue",
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "Dimensions": [
+          {
+            "Name": "QueueName",
+            "Value": "input"
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "ApproximateNumberOfMessagesVisible",
+        "Namespace": "AWS/SQS",
+        "OKActions": [
+          {
+            "Ref": "removepolicy"
+          }
+        ],
+        "Period": 60,
+        "Statistic": "Average",
+        "Threshold": 10
+      }
+    }
+  }
+}

@@ -21,6 +21,33 @@
       "Properties": {
         "BucketName": "image-bucket-31415926"
       }
+    },
+    "inputpolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Properties": {
+        "PolicyDocument": {
+          "Id": "inputpolicy",
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "Allow-User-SendMessage",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "526039161745"
+              },
+              "Action": [
+                "sqs:SendMessage"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Queues": [
+          {
+            "Ref": "sqsinput"
+          }
+        ]
+      }
     }
   }
 }
