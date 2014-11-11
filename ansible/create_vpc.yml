@@ -5,6 +5,19 @@
   - var_files/{{ lookup('env','AWS_ACCOUNT_NAME') }}-account.yml
   - var_files/gameday.yml
   tasks:
+
+#  - name: Get existing subnets
+#    local_action:
+#      shell aws ec2 describe-subnets --filters Name=cidrBlock,Values="{{vpc_net}}.1.0/24,{{vpc_net}}.2.0/24"
+#    register: existing_subnets
+
+#  - name: make a list of subnets from the shell output
+#    set_fact:
+#      subnet_list: "{{ existing_subnets.stdout | from_json }}"
+
+#  - debug: msg="{{item}}"
+#    with_items: subnet_list
+
   - name: Create VPC
     local_action:
       module: ec2_vpc
@@ -28,13 +41,22 @@
       region: "{{region}}"
     register: vpc
 
-  - local_action: stat path={{appname}}.pem
-    register: key_exists
+  - name: Check if key pairs exists
+    local_action:
+      shell aws ec2 describe-key-pairs --key-names {{appname}}
+    register: keypair_exists
+    ignore_errors: yes
 
   - name: Create key pair
     local_action:
-      shell aws ec2 create-key-pair --key-name {{appname}} >{{appname}}.pem
-    when: key_exists.stat.exists == False
+      shell aws ec2 create-key-pair --key-name {{appname}} | jq -r ".KeyMaterial"
+    when: "keypair_exists.rc != 0"
+    register: keypair_output
+
+  - name: Write pem file
+    local_action:
+      "shell echo \"{{keypair_output.stdout}}\" >{{ lookup('env','HOME') }}/.ssh/{{appname}}.pem"
+    when: "keypair_exists.rc != 0"
 
   - name: NAT SG
     local_action:
@@ -55,7 +77,7 @@
       - proto: tcp
         from_port: 22
         to_port: 22
-        cidr_ip: 0.0.0.0/8
+        cidr_ip: 0.0.0.0/0
     register: natsg
 
   - name: Create nat server
@@ -66,7 +88,83 @@
       instance_type: m1.small
       image: "{{nat_amiid}}"
       source_dest_check: False
+      instance_tags:
+         Name: NAT
       wait: yes
       vpc_subnet_id: "{{vpc['subnets'][0]['id']}}"
       region: "{{region}}"
       assign_public_ip: yes
+    register: nat
+
+  - name: Recreate VPC with NAT instance routing
+    local_action:
+      module: ec2_vpc
+      state: present
+      cidr_block: "{{vpc_net}}.0.0/16"
+      resource_tags: { "Environment":"Gameday" }
+      subnets:
+      - cidr: "{{vpc_net}}.1.0/24"
+        az: "{{region}}a"
+        resource_tags: { "Environment":"Gameday", "Tier" : "Nat" }
+      - cidr: "{{vpc_net}}.2.0/24"
+        az: "{{region}}a"
+        resource_tags: { "Environment":"Gameday", "Tier" : "App" }
+      internet_gateway: True
+      route_tables:
+      - subnets:
+          - "{{vpc_net}}.1.0/24"
+        routes:
+          - dest: 0.0.0.0/0
+            gw: igw
+      - subnets:
+          - "{{vpc_net}}.2.0/24"
+        routes:
+          - dest: 0.0.0.0/0
+            gw: "{{nat.instance_ids[0]}}"
+      region: "{{region}}"
+    register: vpc
+
+  - name: Batch processing SG
+    local_action:
+      module: ec2_group
+      name: batchprocessingsg
+      description: Batch Processing SG
+      vpc_id: "{{vpc.vpc_id}}"
+      region: "{{region}}"
+      rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+    register: batchprocessingsg
+
+  - name: sqs-s3 cloudformation
+    cloudformation:
+      stack_name="sqs-s3-cloudformation"
+      state=present
+      region="{{region}}"
+      disable_rollback=false
+      template=../cloudformation/sqs-s3.json
+    tags:
+    - cloudform
+
+  - name: autoscaling cloudformation
+    cloudformation:
+      stack_name="autoscaling-cloudformation"
+      state=present
+      region="{{region}}"
+      disable_rollback=false
+      template=../cloudformation/autoscaling.json
+    args:
+      template_parameters:
+        subnets: subnet-7542ba02
+        ami: ami-4985b048
+        securitygroup: sg-5027f735
+#
+#
+#       subnets: "{{vpc['subnets'][1]['id']}}"
+#       subnets: "{{vpc['subnets'][1]['id']}}"
+#       ami: ami-4985b048
+#       securitygroup: "{{batchprocessingsg.group_id}}"
+    tags:
+    - cloudform
