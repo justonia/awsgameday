@@ -1,0 +1,117 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "autoscaling",
+  "Parameters": {
+    "subnets": {
+      "Description": "ids of the subnets to launch instances in",
+      "Type": "CommaDelimitedList"
+    },
+    "ami": {
+      "Description": "the ami id",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    },
+    "securitygroup": {
+      "Description": "security group id",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255"
+    }
+  },
+  "Resources": {
+    "launchconfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "EbsOptimized": false,
+        "InstanceMonitoring": true,
+        "ImageId": {
+          "Ref": "ami"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "securitygroup"
+          }
+        ],
+        "AssociatePublicIpAddress": false,
+        "IamInstanceProfile": "BatchProcessing",
+        "InstanceType": "t2.micro",
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/sh\n",
+                "/usr/bin/python /home/ec2-user/image_processor.py &\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "autoscalinggroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "Cooldown": "10",
+        "DesiredCapacity": 1,
+        "MaxSize": 1,
+        "MinSize": 1,
+        "LaunchConfigurationName": "worker-group",
+        "VPCZoneIdentifier": {
+          "Ref": "subnets"
+        }
+      }
+    },
+    "addpolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "autoscalinggroup"
+        },
+        "ScalingAdjustment": "1"
+      }
+    },
+    "removepolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "autoscalinggroup"
+        },
+        "ScalingAdjustment": "-1"
+      }
+    },
+    "cloudwatchalarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmActions": [
+          {
+            "Ref": "addpolicy"
+          }
+        ],
+        "AlarmDescription": "queue is to long",
+        "AlarmName": "long-queue",
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "Dimensions": [
+          {
+            "Name": "QueueName",
+            "Value": "input"
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "ApproximateNumberOfMessagesVisible",
+        "Namespace": "AWS/EC2",
+        "OKActions": [
+          {
+            "Ref": "removepolicy"
+          }
+        ],
+        "Period": 60,
+        "Statistic": "Average",
+        "Threshold": 10
+      }
+    }
+  }
+}
