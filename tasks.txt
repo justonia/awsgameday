@@ -10,8 +10,8 @@ Create master EC2 instance for worker
 Create AMI for workers
 
 // andrew
-Create SQS task queues
-Create S3 bucket
+Create SQS task queues // done
+Create S3 bucket // done
 Create autoscaling group
 
 // later
