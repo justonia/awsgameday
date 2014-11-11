@@ -91,6 +91,7 @@
         "ImageId": {
           "Ref": "ami"
         },
+        "KeyName": "imageprocessor2",
         "SecurityGroups": [
           {
             "Ref": "securitygroup"
