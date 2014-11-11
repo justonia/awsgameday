@@ -20,6 +20,69 @@
     }
   },
   "Resources": {
+    "iamrole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "root",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Stmt1415740964000",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                },
+                {
+                  "Sid": "Stmt1415740989000",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "iamprofile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "iamrole"
+          }
+        ]
+      }
+    },
     "launchconfig": {
       "Type": "AWS::AutoScaling::LaunchConfiguration",
       "Properties": {
@@ -34,7 +97,7 @@
           }
         ],
         "AssociatePublicIpAddress": false,
-        "IamInstanceProfile": "BatchProcessing",
+        "IamInstanceProfile": {"Ref": "iamprofile"},
         "InstanceType": "t2.micro",
         "UserData": {
           "Fn::Base64": {
@@ -54,12 +117,17 @@
       "Properties": {
         "Cooldown": "10",
         "DesiredCapacity": 1,
-        "MaxSize": 1,
+        "MaxSize": 4,
         "MinSize": 1,
-        "LaunchConfigurationName": "worker-group",
+        "LaunchConfigurationName": {
+          "Ref": "launchconfig"
+        },
         "VPCZoneIdentifier": {
           "Ref": "subnets"
-        }
+        },
+        "AvailabilityZones": [
+          "ap-northeast-1a"
+        ]
       }
     },
     "addpolicy": {
@@ -102,7 +170,7 @@
         ],
         "EvaluationPeriods": 1,
         "MetricName": "ApproximateNumberOfMessagesVisible",
-        "Namespace": "AWS/EC2",
+        "Namespace": "AWS/SQS",
         "OKActions": [
           {
             "Ref": "removepolicy"
