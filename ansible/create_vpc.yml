@@ -1,0 +1,59 @@
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+  - var_files/{{ lookup('env','AWS_ACCOUNT_NAME') }}-account.yml
+  - var_files/gameday.yml
+  tasks:
+  - name: Create VPC
+    local_action:
+      module: ec2_vpc
+      state: present
+      cidr_block: "{{vpc_net}}.0.0/16"
+      resource_tags: { "Environment":"Gameday" }
+      subnets:
+      - cidr: "{{vpc_net}}.1.0/24"
+        az: "{{region}}a"
+        resource_tags: { "Environment":"Gameday", "Tier" : "Nat" }
+      - cidr: "{{vpc_net}}.2.0/24"
+        az: "{{region}}a"
+        resource_tags: { "Environment":"Gameday", "Tier" : "App" }
+      internet_gateway: True
+      route_tables:
+      - subnets:
+          - "{{vpc_net}}.1.0/24"
+        routes:
+          - dest: 0.0.0.0/0
+            gw: igw
+      region: "{{region}}"
+    register: vpc
+
+  - local_action: stat path={{appname}}.pem
+    register: key_exists
+
+  - name: Create key pair
+    local_action:
+      shell aws ec2 create-key-pair --key-name {{appname}} >{{appname}}.pem
+    when: key_exists.stat.exists == False
+
+  - name: NAT SG
+    local_action:
+      module: ec2_group
+      name: natsg
+      description: NAT security group
+      vpc_id: "{{vpc.vpc_id}}"
+      region: "{{region}}"
+      rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 443
+        to_port: 443
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 10.0.0.0/8
+
